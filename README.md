@@ -3702,7 +3702,16 @@ UI.BoxEnvironment:AddToggle("wAmbOn", {
     end
 })
 UI.BoxEnvironment:AddToggle("wTimeOn", { Text = "Custom Day Time", Default = STATE.wTimeOn, Callback = function(v) STATE.wTimeOn = v end })
-UI.BoxEnvironment:AddSlider("wTime", { Text = "Time of Day", Default = STATE.wTime, Min = 0, Max = 24, Rounding = 1, Callback = function(v) STATE.wTime = v end })
+UI.BoxEnvironment:AddSlider("wTime", {
+    Text = "Time of Day",
+    Default = STATE.wTime or 12,
+    Min = 0,
+    Max = 24,
+    Rounding = 1,
+    Callback = function(v)
+        STATE.wTime = v
+    end
+})
 UI.BoxEnvironment:AddToggle("wFogOn", { Text = "Custom Fog", Default = STATE.wFogOn, Callback = function(v) STATE.wFogOn = v end }):AddColorPicker("wFogCol", { Default = STATE.wFogCol, Title = "Fog Color", Callback = function(v) STATE.wFogCol = v end })
 UI.BoxEnvironment:AddSlider("wFogEnd", { Text = "Fog End", Default = STATE.wFogEnd, Min = 0, Max = 10000, Rounding = 0, Callback = function(v) STATE.wFogEnd = v end })
 UI.BoxEnvironment:AddToggle("wSkyOn", { Text = "Custom Skybox", Default = STATE.wSkyOn, Callback = function(v) STATE.wSkyOn = v end })
