@@ -1,3 +1,4 @@
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -318,6 +319,7 @@ STATE.wFogCol = Color3.fromRGB(192, 192, 192)
 STATE.wFogEnd = 10000
 STATE.wSkyOn = false
 STATE.wSkyId = ""
+STATE.wSkyPreset = "Purple Nebula"
 STATE.wShadowsOff = false
 STATE.wBloomOn = false
 STATE.wBloomInt = 0
@@ -339,6 +341,94 @@ STATE.SpinbotSpeed = 15
 STATE.ITGAutoQueue = false
 STATE.ITGMeleeOnDmg = false
 STATE.ITGPlacePad = false
+
+-- Cosmetic Skybox controller.  It only changes Lighting.Sky and restores every
+-- pre-existing Sky instance when disabled or when the script is unloaded.
+local SkyLighting = game:GetService("Lighting")
+local customSkybox = nil
+local parkedSkyboxes = {}
+
+local SKYBOX_PRESETS = {
+    ["Purple Nebula"] = {
+        Bk = "159454299",
+        Dn = "159454296",
+        Ft = "159454293",
+        Lf = "159454286",
+        Rt = "159454300",
+        Up = "159454288"
+    }
+}
+
+local function skyAsset(value)
+    local id = tostring(value or ""):match("%d+")
+    return id and ("rbxassetid://" .. id) or ""
+end
+
+local function restoreCustomSkybox()
+    if customSkybox then
+        customSkybox:Destroy()
+        customSkybox = nil
+    end
+
+    for _, sky in ipairs(parkedSkyboxes) do
+        if sky and sky.Parent == nil then
+            pcall(function() sky.Parent = SkyLighting end)
+        end
+    end
+    table.clear(parkedSkyboxes)
+end
+
+local function getSelectedSkyFaces()
+    if STATE.wSkyPreset ~= "Custom (6 IDs)" then
+        return SKYBOX_PRESETS[STATE.wSkyPreset]
+            or SKYBOX_PRESETS["Purple Nebula"]
+    end
+
+    local ids = {}
+    for id in tostring(STATE.wSkyId or ""):gmatch("%d+") do
+        ids[#ids + 1] = id
+    end
+
+    if #ids >= 6 then
+        return {
+            Bk = ids[1], Dn = ids[2], Ft = ids[3],
+            Lf = ids[4], Rt = ids[5], Up = ids[6]
+        }
+    end
+
+    return nil
+end
+
+local function applyCustomSkybox()
+    restoreCustomSkybox()
+    if not STATE.wSkyOn or STATE.IsUnloaded then return end
+
+    local faces = getSelectedSkyFaces()
+    if not faces then
+        warn("[Skybox] Custom mode needs 6 asset IDs: Bk,Dn,Ft,Lf,Rt,Up")
+        return
+    end
+
+    for _, child in ipairs(SkyLighting:GetChildren()) do
+        if child:IsA("Sky") then
+            parkedSkyboxes[#parkedSkyboxes + 1] = child
+            child.Parent = nil
+        end
+    end
+
+    local sky = Instance.new("Sky")
+    sky.Name = "DefensiveCustomSkybox"
+    sky.SkyboxBk = skyAsset(faces.Bk)
+    sky.SkyboxDn = skyAsset(faces.Dn)
+    sky.SkyboxFt = skyAsset(faces.Ft)
+    sky.SkyboxLf = skyAsset(faces.Lf)
+    sky.SkyboxRt = skyAsset(faces.Rt)
+    sky.SkyboxUp = skyAsset(faces.Up)
+    sky.StarCount = 3000
+    sky.CelestialBodiesShown = true
+    sky.Parent = SkyLighting
+    customSkybox = sky
+end
 
 local shootSoundNames = {"None", "Laser", "Galil", "Pew", "MP40", "Crossbow", "Pop", "Clink"}
 local reloadSoundNames = {"None", "Fortnite", "AK47", "MPN_HK33", "Revolver", "Heal", "PVZ", "Mario", "Power up"}
@@ -487,6 +577,7 @@ loadConfig("Default")
 -- Defensive build: never allow a saved configuration to activate the
 -- character/camera rewriting subsystem.
 STATE.ThirdPerson = false
+if STATE.wSkyOn then applyCustomSkybox() end
 
 local AimBindMap = {
     ["Mouse Right"] = Enum.UserInputType.MouseButton2,
@@ -3750,8 +3841,39 @@ STATE.wFogCol = STATE.wFogCol or Color3.fromRGB(192, 192, 192)
 UI.BoxEnvironment:AddToggle("wFogOn", { Text = "Custom Fog", Default = STATE.wFogOn, Callback = function(v) STATE.wFogOn = v end }):AddColorPicker("wFogCol", { Default = STATE.wFogCol, Title = "Fog Color", Callback = function(v) STATE.wFogCol = v end })
 STATE.wFogEnd = tonumber(STATE.wFogEnd) or 10000
 UI.BoxEnvironment:AddSlider("wFogEnd", { Text = "Fog End", Default = STATE.wFogEnd, Min = 0, Max = 10000, Rounding = 0, Callback = function(v) STATE.wFogEnd = v end })
-UI.BoxEnvironment:AddToggle("wSkyOn", { Text = "Custom Skybox", Default = STATE.wSkyOn, Callback = function(v) STATE.wSkyOn = v end })
-UI.BoxEnvironment:AddInput("wSkyId", { Default = STATE.wSkyId, Finished = false, Text = "Skybox ID", Placeholder = "", Callback = function(v) STATE.wSkyId = v end })
+UI.BoxEnvironment:AddToggle("wSkyOn", {
+    Text = "Custom Skybox",
+    Default = STATE.wSkyOn,
+    Callback = function(v)
+        STATE.wSkyOn = v
+        applyCustomSkybox()
+    end
+})
+
+local skyPresetValues = {"Purple Nebula", "Custom (6 IDs)"}
+UI.BoxEnvironment:AddDropdown("wSkyPreset", {
+    Text = "Skybox Style",
+    Values = skyPresetValues,
+    Default = table.find(skyPresetValues, STATE.wSkyPreset) or 1,
+    Multi = false,
+    Callback = function(v)
+        STATE.wSkyPreset = v
+        if STATE.wSkyOn then applyCustomSkybox() end
+    end
+})
+
+UI.BoxEnvironment:AddInput("wSkyId", {
+    Default = STATE.wSkyId,
+    Finished = true,
+    Text = "Custom IDs (Bk,Dn,Ft,Lf,Rt,Up)",
+    Placeholder = "6 asset IDs separated by commas",
+    Callback = function(v)
+        STATE.wSkyId = v
+        if STATE.wSkyOn and STATE.wSkyPreset == "Custom (6 IDs)" then
+            applyCustomSkybox()
+        end
+    end
+})
 UI.BoxEnvironment:AddToggle("wShadowsOff", { Text = "Disable Shadows", Default = STATE.wShadowsOff, Callback = function(v) STATE.wShadowsOff = v end })
 UI.BoxEnvironment:AddToggle("wBloomOn", { Text = "Custom Bloom", Default = STATE.wBloomOn, Callback = function(v) STATE.wBloomOn = v end })
 STATE.wBloomInt = tonumber(STATE.wBloomInt) or 0
@@ -4328,6 +4450,7 @@ local function sync_ui()
             CrosshairSize = "CrosshairSize", CrosshairSpin = "CrosshairSpin",
             CrosshairRainbow = "CrosshairRainbow", WorldTint = "WorldTint",
             WorldTintColor = "WorldTintColor", ViewmodelChams = "ViewmodelChams",
+            wSkyOn = "wSkyOn", wSkyPreset = "wSkyPreset", wSkyId = "wSkyId",
             ViewmodelRainbow = "ViewmodelRainbow", ViewmodelHide = "ViewmodelHide",
             ViewmodelRemoveMesh = "ViewmodelRemoveMesh", ViewmodelTransparency = "ViewmodelTransparency",
             ViewmodelColor = "ViewmodelColor", ViewmodelMaterial = "ViewmodelMaterial",
@@ -4375,6 +4498,11 @@ UI.BoxConfig:AddButton({ Text = "Load Config", Func = function()
     end
     loadConfig(nameToLoad)
     STATE.ThirdPerson = false
+    if STATE.wSkyOn then
+        applyCustomSkybox()
+    else
+        restoreCustomSkybox()
+    end
     sync_ui() -- Apply the internal STATE variables securely directly onto the Visual Objects
     pcall(function()
         local o = type(getgenv) == "function" and getgenv().Options or nil
@@ -4547,6 +4675,8 @@ addToCleanup(function()
     STATE.ThirdPerson = false
 end)
 addToCleanup(function()
+    STATE.wSkyOn = false
+    restoreCustomSkybox()
     local tintObj = game:GetService("Lighting"):FindFirstChild("RageByteTint")
     if tintObj then tintObj:Destroy() end
     if DomeFolder then DomeFolder:Destroy() end
