@@ -3721,7 +3721,18 @@ UI.BoxEnvironment:AddToggle("wSkyOn", { Text = "Custom Skybox", Default = STATE.
 UI.BoxEnvironment:AddInput("wSkyId", { Default = STATE.wSkyId, Finished = false, Text = "Skybox ID", Placeholder = "", Callback = function(v) STATE.wSkyId = v end })
 UI.BoxEnvironment:AddToggle("wShadowsOff", { Text = "Disable Shadows", Default = STATE.wShadowsOff, Callback = function(v) STATE.wShadowsOff = v end })
 UI.BoxEnvironment:AddToggle("wBloomOn", { Text = "Custom Bloom", Default = STATE.wBloomOn, Callback = function(v) STATE.wBloomOn = v end })
-UI.BoxEnvironment:AddSlider("wBloomInt", { Text = "Bloom Intensity", Default = STATE.wBloomInt, Min = 0, Max = 10, Rounding = 1, Callback = function(v) STATE.wBloomInt = v end })
+STATE.wBloomInt = tonumber(STATE.wBloomInt) or 0
+
+UI.BoxEnvironment:AddSlider("wBloomInt", {
+    Text = "Bloom Intensity",
+    Default = STATE.wBloomInt,
+    Min = 0,
+    Max = 10,
+    Rounding = 1,
+    Callback = function(v)
+        STATE.wBloomInt = v
+    end
+})
 
 
 UI.BoxMap:AddToggle("MapChams", { Text = "Map Modification", Default = STATE.MapChams, Callback = function(v) STATE.MapChams = v end })
