@@ -4107,57 +4107,84 @@ local menuKeybindObj = type(getgenv) == "function" and getgenv().Options and get
 if not menuKeybindObj and typeof(Options) == "table" then menuKeybindObj = Options.MenuKeybind end
 if not menuKeybindObj and Library and type(Library.Options) == "table" then menuKeybindObj = Library.Options.MenuKeybind end
 
-if USE_LINORIA or USE_OBSIDIAN then
-    -- Linoria and Obsidian toggle the window natively whenever Library.ToggleKeybind
-    -- points at a KeyPicker matching the pressed key (Linoria via its window InputBegan
-    -- handler, Obsidian via the KeyPicker's DoClick). Just wire it up. Do NOT also add a
-    -- manual handler for these two: both would call Library:Toggle() on the same press
-    -- and, with window animations disabled, the double toggle cancels out (menu appears
-    -- stuck).
-    if menuKeybindObj then
-        Library.ToggleKeybind = menuKeybindObj
+-- Some KeyPicker implementations reject modifier, keypad and system keys.  Keep
+-- the normal KeyPicker above for ordinary keys and provide an explicit, portable
+-- special-key selector for the keys those pickers cannot capture.
+local specialMenuKeys = {
+    "Use KeyPicker",
+    "LeftShift", "RightShift",
+    "LeftControl", "RightControl",
+    "LeftAlt", "RightAlt",
+    "Return", "KeypadEnter", "Delete", "Slash", "KeypadDivide",
+    "KeypadZero", "KeypadOne", "KeypadTwo", "KeypadThree", "KeypadFour",
+    "KeypadFive", "KeypadSix", "KeypadSeven", "KeypadEight", "KeypadNine",
+    "KeypadPeriod", "KeypadMultiply", "KeypadMinus", "KeypadPlus",
+    "LeftSuper", "RightSuper", "LeftMeta", "RightMeta"
+}
+
+STATE.MenuSpecialKey = STATE.MenuSpecialKey or "Use KeyPicker"
+local specialDefault = table.find(specialMenuKeys, STATE.MenuSpecialKey) or 1
+
+UI.BoxUI:AddDropdown("MenuSpecialKey", {
+    Text = "Special Menu Key",
+    Values = specialMenuKeys,
+    Default = specialDefault,
+    Multi = false,
+    Callback = function(v)
+        STATE.MenuSpecialKey = v
     end
-else
-    -- Fluent / Mentality / Atlanta have NO built-in menu-keybind handling, so setting
-    -- Library.ToggleKeybind does nothing and the bind was dead. Drive Library:Toggle()
-    -- ourselves from a single InputBegan handler. The bound key is read live so rebinding
-    -- keeps working where the adapter supports it, and we only skip toggling while a
-    -- textbox is focused so the menu can always be closed again while it is open.
-    local function getMenuKey()
-        local obj = menuKeybindObj
-        if not obj and type(getgenv) == "function" and type(getgenv().Options) == "table" then
-            obj = getgenv().Options.MenuKeybind
-        end
-        if obj then
-            local v = obj.Value
-            if v == nil then v = obj.value end -- Atlanta stores lowercase keys
-            if typeof(v) == "EnumItem" then return v.Name end
-            if type(v) == "string" and v ~= "" then return v end
-        end
-        return "K"
-    end
+})
 
-    local menuToggleDebounce = false
-    conn_menuToggle = UserInputService.InputBegan:Connect(function(input)
-        if menuToggleDebounce then return end
-        if UserInputService:GetFocusedTextBox() then return end
-
-        local pressed
-        if input.UserInputType == Enum.UserInputType.Keyboard then
-            pressed = input.KeyCode.Name
-        elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
-            pressed = "MB1"
-        elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-            pressed = "MB2"
-        end
-
-        if pressed and pressed == getMenuKey() and Library and type(Library.Toggle) == "function" then
-            menuToggleDebounce = true
-            pcall(function() Library:Toggle() end)
-            task.delay(0.2, function() menuToggleDebounce = false end)
-        end
-    end)
+-- Disable native menu toggling.  Every UI adapter now uses this one handler, so
+-- Linoria/Obsidian cannot toggle once natively and once manually on the same key.
+if Library then
+    Library.ToggleKeybind = nil
 end
+
+local function getMenuKey()
+    if STATE.MenuSpecialKey and STATE.MenuSpecialKey ~= "Use KeyPicker" then
+        return STATE.MenuSpecialKey
+    end
+
+    local obj = menuKeybindObj
+    if not obj and type(getgenv) == "function" and type(getgenv().Options) == "table" then
+        obj = getgenv().Options.MenuKeybind
+    end
+
+    if obj then
+        local v = obj.Value
+        if v == nil then v = obj.value end
+        if typeof(v) == "EnumItem" then return v.Name end
+        if type(v) == "string" and v ~= "" then return v end
+    end
+
+    return "K"
+end
+
+local menuToggleDebounce = false
+conn_menuToggle = UserInputService.InputBegan:Connect(function(input)
+    if menuToggleDebounce or STATE.IsUnloaded then return end
+    if UserInputService:GetFocusedTextBox() then return end
+
+    local pressed
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        pressed = input.KeyCode.Name
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+        pressed = "MB1"
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+        pressed = "MB2"
+    elseif input.UserInputType == Enum.UserInputType.MouseButton3 then
+        pressed = "MB3"
+    end
+
+    if pressed == getMenuKey() and Library and type(Library.Toggle) == "function" then
+        menuToggleDebounce = true
+        pcall(function() Library:Toggle() end)
+        task.delay(0.2, function()
+            menuToggleDebounce = false
+        end)
+    end
+end)
 
 UI.BoxUI:AddToggle("CensorText", { Text = "Censor Text", Default = STATE.CensorText, Callback = function(v) STATE.CensorText = v; if v and STATE.CensorListeners then run_check() end end })
 UI.BoxUI:AddInput("CensorRenameText", {
@@ -4341,24 +4368,57 @@ UI.BoxConfig:AddButton({ Text = "Delete Config", Func = function()
     end
 end })
 UI.BoxConfig:AddButton({ Text = "Refresh Configs", Func = refreshConfigDropdown })
+if ThemeManager then
+    if type(ThemeManager.SetLibrary) == "function" then
+        pcall(function()
+            ThemeManager:SetLibrary(Library)
+        end)
+    end
 
-if ThemeManager and type(ThemeManager.SetLibrary) == "function" then
-    ThemeManager:SetLibrary(Library)
-    ThemeManager:SetFolder("OverkillConfigs")
-    ThemeManager:BuildThemeSection(UI.TabTheme:AddLeftGroupbox("Menu Theme"))
-    if USE_LINORIA and Library and Library.Theme then
-        Library.Theme.AccentColor = Color3.fromRGB(150, 140, 255)
-        Library:UpdateColorsUsingRegistry()
-        if Options.ThemeManager_AccentColor then
-            Options.ThemeManager_AccentColor:SetValueRGB(Color3.fromRGB(150, 140, 255))
+    if type(ThemeManager.SetFolder) == "function" then
+        pcall(function()
+            ThemeManager:SetFolder("OverkillConfigs")
+        end)
+    end
+
+    if type(ThemeManager.BuildThemeSection) == "function"
+        and UI
+        and UI.TabTheme
+        and type(UI.TabTheme.AddLeftGroupbox) == "function" then
+
+        pcall(function()
+            local themeGroupbox =
+                UI.TabTheme:AddLeftGroupbox("Menu Theme")
+
+            ThemeManager:BuildThemeSection(themeGroupbox)
+        end)
+    end
+
+    if USE_LINORIA
+        and Library
+        and Library.Theme then
+
+        Library.Theme.AccentColor =
+            Color3.fromRGB(150, 140, 255)
+
+        if type(Library.UpdateColorsUsingRegistry) == "function" then
+            pcall(function()
+                Library:UpdateColorsUsingRegistry()
+            end)
+        end
+
+        if Options
+            and Options.ThemeManager_AccentColor
+            and type(Options.ThemeManager_AccentColor.SetValueRGB)
+                == "function" then
+
+            pcall(function()
+                Options.ThemeManager_AccentColor:SetValueRGB(
+                    Color3.fromRGB(150, 140, 255)
+                )
+            end)
         end
     end
-
-    if USE_LINORIA and Library and Library.Theme then
-        Library.Theme.AccentColor = Color3.fromRGB(150, 140, 255)
-        Library:UpdateColorsUsingRegistry()
-    end
-
 end
 
 local CLEANUP_LIST = {}
