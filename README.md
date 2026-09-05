@@ -3712,6 +3712,8 @@ UI.BoxEnvironment:AddSlider("wTime", {
         STATE.wTime = v
     end
 })
+STATE.wFogOn = STATE.wFogOn == true
+STATE.wFogCol = STATE.wFogCol or Color3.fromRGB(192, 192, 192)
 UI.BoxEnvironment:AddToggle("wFogOn", { Text = "Custom Fog", Default = STATE.wFogOn, Callback = function(v) STATE.wFogOn = v end }):AddColorPicker("wFogCol", { Default = STATE.wFogCol, Title = "Fog Color", Callback = function(v) STATE.wFogCol = v end })
 UI.BoxEnvironment:AddSlider("wFogEnd", { Text = "Fog End", Default = STATE.wFogEnd, Min = 0, Max = 10000, Rounding = 0, Callback = function(v) STATE.wFogEnd = v end })
 UI.BoxEnvironment:AddToggle("wSkyOn", { Text = "Custom Skybox", Default = STATE.wSkyOn, Callback = function(v) STATE.wSkyOn = v end })
