@@ -306,6 +306,40 @@ local STATE = {
     CustomViewModelToggle = false, VMOffsetX = 0, VMOffsetY = 0, VMOffsetZ = 0, VMPitch = 0, VMYaw = 0, VMRoll = 0
 }
 
+-- Defaults required by the environment UI.  These fields were absent from the
+-- original STATE table, causing the UI library to stop at each control whose
+-- Default value was nil.
+STATE.wAmbOn = false
+STATE.wAmbCol = Color3.fromRGB(255, 255, 255)
+STATE.wTimeOn = false
+STATE.wTime = 12
+STATE.wFogOn = false
+STATE.wFogCol = Color3.fromRGB(192, 192, 192)
+STATE.wFogEnd = 10000
+STATE.wSkyOn = false
+STATE.wSkyId = ""
+STATE.wShadowsOff = false
+STATE.wBloomOn = false
+STATE.wBloomInt = 0
+
+-- Optional device controls also require concrete boolean defaults across the
+-- different UI adapters.
+STATE.MobileADS = false
+STATE.MobileButton = false
+STATE.MobileLock = false
+STATE.ForceMobile = false
+
+-- Missing feature flags default to OFF.  This prevents nil UI defaults without
+-- activating any gameplay-altering feature.
+STATE.IgnoreDummies = false
+STATE.HitboxLock = false
+STATE.KatanaCheck = false
+STATE.Spinbot = false
+STATE.SpinbotSpeed = 15
+STATE.ITGAutoQueue = false
+STATE.ITGMeleeOnDmg = false
+STATE.ITGPlacePad = false
+
 local shootSoundNames = {"None", "Laser", "Galil", "Pew", "MP40", "Crossbow", "Pop", "Clink"}
 local reloadSoundNames = {"None", "Fortnite", "AK47", "MPN_HK33", "Revolver", "Heal", "PVZ", "Mario", "Power up"}
 local hitSoundNames = {"None", "Glass"}
@@ -449,6 +483,10 @@ local function loadConfig(configName)
     end
 end
 loadConfig("Default")
+
+-- Defensive build: never allow a saved configuration to activate the
+-- character/camera rewriting subsystem.
+STATE.ThirdPerson = false
 
 local AimBindMap = {
     ["Mouse Right"] = Enum.UserInputType.MouseButton2,
@@ -2672,7 +2710,7 @@ RunService:BindToRenderStep("RB_AimLock", Enum.RenderPriority.Last.Value, functi
 
 
     local myChar = getLocalCharacter()
-    if STATE.ThirdPerson then
+    if false and STATE.ThirdPerson then
         if STATE.ThirdPersonMode == "Classic" then
             -- Force character visible
             if myChar then
@@ -2757,14 +2795,9 @@ RunService:BindToRenderStep("RB_AimLock", Enum.RenderPriority.Last.Value, functi
             camera.CFrame = CFrame.new(targetPos, targetPos + camera.CFrame.LookVector)
         end
     else
-        -- Restore LocalTransparencyModifier so the engine hides character in first person as normal.
-        if myChar then
-            for _, v in ipairs(myChar:GetDescendants()) do
-                if v:IsA("BasePart") and v.Name ~= "HumanoidRootPart" then
-                    v.LocalTransparencyModifier = 1
-                end
-            end
-        end
+        -- Leave character transparency under the game's control.  The previous
+        -- code wrote LocalTransparencyModifier = 1 every rendered frame even
+        -- when Third Person was disabled, making the local character invisible.
     end
 
     -- Stretch Resolution: scale the view axes to stretch the rendered image.
@@ -3983,10 +4016,7 @@ UI.BoxCosmetics:AddDropdown("FinisherSelection", { Text = "Finisher Selection", 
 UI.BoxUI = UI.TabVisuals:AddLeftGroupbox("Local Visuals")
   UI.BoxOverlays = UI.TabMisc:AddLeftGroupbox("Overlays")
 UI.thirdPersonModeValues = {"Classic", "Viewmodel"}
-UI.thirdPersonModeDefault = table.find(UI.thirdPersonModeValues, STATE.ThirdPersonMode) or 1
-UI.BoxUI:AddToggle("ThirdPerson", { Text = "Third Person", Default = STATE.ThirdPerson, Callback = function(v) STATE.ThirdPerson = v end })
-  UI.BoxUI:AddSlider("ThirdPersonZoom", { Text = "Third Person Zoom", Default = STATE.ThirdPersonZoom, Min = 5, Max = 50, Rounding = 1, Callback = function(v) STATE.ThirdPersonZoom = v end })
-  UI.BoxUI:AddDropdown("ThirdPersonMode", { Text = "Third Person Mode", Values = UI.thirdPersonModeValues, Default = UI.thirdPersonModeDefault, Multi = false, Callback = function(v) STATE.ThirdPersonMode = v end })
+-- Third Person controls intentionally disabled in this defensive build.
   UI.BoxCustomVM = UI.TabVisuals:AddRightGroupbox("Custom ViewModel")
   UI.BoxCustomVM:AddToggle("CustomViewModelToggle", { Text = "Enable Offset", Default = STATE.CustomViewModelToggle, Callback = function(v) STATE.CustomViewModelToggle = v end })
   UI.BoxCustomVM:AddSlider("VMOffsetX", { Text = "Offset X", Default = STATE.VMOffsetX, Min = -5, Max = 5, Rounding = 1, Callback = function(v) STATE.VMOffsetX = v end })
@@ -4343,7 +4373,8 @@ UI.BoxConfig:AddButton({ Text = "Load Config", Func = function()
     if type(nameToLoad) == "table" then
         for k, v in pairs(nameToLoad) do if v then nameToLoad = k; break end end
     end
-    loadConfig(nameToLoad) 
+    loadConfig(nameToLoad)
+    STATE.ThirdPerson = false
     sync_ui() -- Apply the internal STATE variables securely directly onto the Visual Objects
     pcall(function()
         local o = type(getgenv) == "function" and getgenv().Options or nil
@@ -4463,6 +4494,34 @@ addToCleanup(function()
     end
 end)
 addToCleanup(function()
+    -- Restore viewmodel objects explicitly before the render connection is
+    -- disconnected.  Otherwise its normal restoration branch never runs.
+    STATE.ViewmodelHide = false
+    STATE.ViewmodelChams = false
+    STATE.ViewmodelRemoveMesh = false
+
+    for object, original in pairs(viewmodelCache) do
+        pcall(function()
+            if object and object.Parent then
+                object.Color = original.Color
+                object.Material = original.Material
+                object.Transparency = original.Transparency
+            end
+        end)
+    end
+    table.clear(viewmodelCache)
+
+    for object, original in pairs(meshCache) do
+        pcall(function()
+            if original.Parent ~= nil then
+                if object.Parent == nil then object.Parent = original.Parent end
+            elseif original.Transparency ~= nil and object.Parent then
+                object.Transparency = original.Transparency
+            end
+        end)
+    end
+    table.clear(meshCache)
+
     if conn_inputBegan then conn_inputBegan:Disconnect() end
     if conn_inputEnded then conn_inputEnded:Disconnect() end
     if conn_menuToggle then conn_menuToggle:Disconnect() end
@@ -4548,7 +4607,8 @@ task.spawn(function()
                   local rbTPPartCache = {}
                   cachedCameraHandler.update = function(self, dt, ...)
                       local res = oldUpdate(self, dt, ...)
-                      if STATE.ThirdPerson and STATE.ThirdPersonMode == "Classic" then
+                      if STATE.IsUnloaded then return res end
+                      if false and STATE.ThirdPerson and STATE.ThirdPersonMode == "Classic" then
                           self._RBThirdPersonActive = true
                           local myChar2 = getLocalCharacter()
                           if myChar2 then
